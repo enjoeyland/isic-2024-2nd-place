@@ -1,7 +1,7 @@
 # %%
 import os
 import gc
-import cv2
+# import cv2
 import math
 import copy
 import time
@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 
 # Utils
-import joblib
+# import joblib
 from tqdm import tqdm
 from collections import defaultdict
 
@@ -26,8 +26,8 @@ from sklearn.model_selection import StratifiedKFold, StratifiedGroupKFold, Group
 import timm
 
 # Albumentations for augmentations
-import albumentations as A
-from albumentations.pytorch import ToTensorV2
+# import albumentations as A
+# from albumentations.pytorch import ToTensorV2
 
 # For colored terminal text
 from colorama import Fore, Back, Style
@@ -39,11 +39,15 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
+import rootutils
+
+rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
+
 # For descriptive error messages
 os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
 # %%
-ROOT_DIR = "/workspace/data/isic-2024-challenge"
+ROOT_DIR = os.path.join(os.environ["DATA_DIR"], "isic-2024-challenge")
 TRAIN_DIR = f"{ROOT_DIR}/train-image/image"
 
 
@@ -145,7 +149,7 @@ from sklearn.cluster import KMeans
 from sklearn.metrics import pairwise_distances
 
 # データフレームの読み込み
-df = pd.read_csv("/workspace/data/isic-2024-challenge/train-metadata.csv")
+df = pd.read_csv(os.path.join(ROOT_DIR, "train-metadata.csv"))
 
 df["iddx_only_benign"] = df["iddx_full"] == "Benign"
 
@@ -226,5 +230,5 @@ for n in range(n_clusters):
     label_cols.append(f"iddx_cluster_{n_clusters}_label_{n}")
 
 df[["isic_id"] + label_cols].to_parquet(
-    f"/workspace/data/isic-2024-challenge/df_train_iddx_cluster_{n_clusters}_temp5_label.parquet"
+    os.path.join(ROOT_DIR, f"df_train_iddx_cluster_{n_clusters}_temp5_label.parquet")
 )

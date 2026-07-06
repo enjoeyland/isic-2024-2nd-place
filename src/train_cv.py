@@ -43,6 +43,16 @@ log = RankedLogger(__name__, rank_zero_only=True)
 torch.set_float32_matmul_precision("high")
 
 
+def get_folds_to_run(cfg: DictConfig) -> List[int]:
+    cv_fold = cfg.get("cv_fold", None)
+    if cv_fold is None:
+        return list(range(cfg.data.n_fold))
+    fold = int(cv_fold)
+    if fold < 0 or fold >= cfg.data.n_fold:
+        raise ValueError(f"cv_fold must be in [0, {cfg.data.n_fold - 1}], got {fold}")
+    return [fold]
+
+
 @task_wrapper
 def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """Trains the model. Can additionally evaluate on a testset, using best weights obtained during
@@ -120,32 +130,33 @@ def main(cfg: DictConfig) -> Optional[float]:
     # (e.g. ask for tags if none are provided in cfg, print cfg tree, etc.)
     extras(cfg)
 
+    folds_to_run = get_folds_to_run(cfg)
     result_dict = {}
-    # train the model
-    for fold in range(cfg.data.n_fold):
+    for fold in folds_to_run:
         cfg.data.fold = fold
         cfg.seed = fold
         metric_dict, _ = train(cfg)
 
-        # safely retrieve metric value for hydra-based hyperparameter optimization
         metric_value = get_metric_value(metric_dict=metric_dict, metric_name=cfg.get("optimized_metric"))
         result_dict[f"fold_{fold}"] = metric_value
 
-    result_dict["cv_score"] = np.array(
-        [result_dict[f"fold_{fold}"] for fold in range(cfg.data.n_fold)]
-    ).mean()
+    if len(folds_to_run) == cfg.data.n_fold:
+        result_dict["cv_score"] = np.array(
+            [result_dict[f"fold_{fold}"] for fold in folds_to_run]
+        ).mean()
 
-    run = wandb.init(
-        project="ISIC2024_CV",
-        name=f"{cfg.experiment_name}",
-        dir="/workspace/logs/wandb_cv",
-        config=OmegaConf.to_container(cfg, resolve=True, throw_on_missing=True),
-    )
-    run.log(result_dict)
+        run = wandb.init(
+            project="ISIC2024_CV",
+            name=f"{cfg.experiment_name}",
+            dir="/workspace/logs/wandb_cv",
+            config=OmegaConf.to_container(cfg, resolve=True, throw_on_missing=True),
+        )
+        run.log(result_dict)
+        run.finish()
 
-    run.finish()
+        return result_dict["cv_score"]
 
-    return result_dict["cv_score"]
+    return result_dict[f"fold_{folds_to_run[0]}"]
 
 
 if __name__ == "__main__":

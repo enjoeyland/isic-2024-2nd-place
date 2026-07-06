@@ -153,7 +153,9 @@ dmypy.json
 # Lightning-Hydra-Template
 configs/local/default.yaml
 /data/
-/logs/
+/logs/*
+!/logs/slurm/
+!/logs/slurm/.gitkeep
 .env
 
 # Aim logging

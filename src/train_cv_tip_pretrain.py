@@ -43,6 +43,16 @@ log = RankedLogger(__name__, rank_zero_only=True)
 torch.set_float32_matmul_precision("high")
 
 
+def get_folds_to_run(cfg: DictConfig) -> List[int]:
+    cv_fold = cfg.get("cv_fold", None)
+    if cv_fold is None:
+        return list(range(cfg.data.n_fold))
+    fold = int(cv_fold)
+    if fold < 0 or fold >= cfg.data.n_fold:
+        raise ValueError(f"cv_fold must be in [0, {cfg.data.n_fold - 1}], got {fold}")
+    return [fold]
+
+
 @task_wrapper
 def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """Trains the model. Can additionally evaluate on a testset, using best weights obtained during
@@ -108,8 +118,7 @@ def main(cfg: DictConfig) -> Optional[float]:
     # (e.g. ask for tags if none are provided in cfg, print cfg tree, etc.)
     extras(cfg)
 
-    # train the model
-    for fold in range(cfg.data.n_fold):
+    for fold in get_folds_to_run(cfg):
         cfg.data.fold = fold
         cfg.seed = fold
         train(cfg)

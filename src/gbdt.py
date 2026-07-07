@@ -258,9 +258,10 @@ joblib.dump(gbdt_models, save_file_path)
 
 # %%
 run = wandb.init(
-    project="ISIC2024_CV",
+    project=cfg.logger.wandb.project,
+    entity=cfg.logger.wandb.get("entity"),
     name=f"{cfg.gbdt_params.name}",
-    dir="/workspace/logs/wandb_cv",
+    dir=cfg.wandb_summary_dir,
     config=OmegaConf.to_container(cfg.gbdt_params, resolve=True, throw_on_missing=True),
 )
 run.log(result_dict)

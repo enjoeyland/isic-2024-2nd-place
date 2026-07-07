@@ -6,6 +6,7 @@ defaults:
   - _self_
   - data: isic2024
   - paths: default
+  - logger: wandb
   - hydra: default
   - gbdt_params: default
 
@@ -14,4 +15,5 @@ seed: 0
 
 optimized_metric: "test/pauc"
 
+wandb_summary_dir: ${paths.log_dir}wandb_cv
 log_dir: ${paths.log_dir}/gbdt/runs/${gbdt_params.name}

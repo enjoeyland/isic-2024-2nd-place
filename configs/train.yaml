@@ -51,4 +51,5 @@ seed: 0
 optimized_metric: "test/pauc"
 # null: run all CV folds in train_cv.py; 0-4: run a single fold only (for SLURM array jobs)
 cv_fold: null
+wandb_summary_dir: ${paths.log_dir}wandb_cv
 log_dir: ${paths.log_dir}/${task_name}/runs/${experiment_name}

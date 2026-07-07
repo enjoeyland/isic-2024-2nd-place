@@ -145,10 +145,12 @@ def main(cfg: DictConfig) -> Optional[float]:
             [result_dict[f"fold_{fold}"] for fold in folds_to_run]
         ).mean()
 
+        wandb_cfg = cfg.logger.wandb
         run = wandb.init(
-            project="ISIC2024_CV",
+            project=wandb_cfg.project,
+            entity=wandb_cfg.get("entity"),
             name=f"{cfg.experiment_name}",
-            dir="/workspace/logs/wandb_cv",
+            dir=cfg.wandb_summary_dir,
             config=OmegaConf.to_container(cfg, resolve=True, throw_on_missing=True),
         )
         run.log(result_dict)

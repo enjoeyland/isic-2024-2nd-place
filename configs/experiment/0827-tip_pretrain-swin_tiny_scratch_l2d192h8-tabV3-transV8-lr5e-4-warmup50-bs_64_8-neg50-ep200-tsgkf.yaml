@@ -57,7 +57,7 @@ trainer:
 experiment_name: 0827-tip_pretrain-swin_tiny_scratch_l2d192h8-tabV3-transV8-lr5e-4-warmup50-bs_64_8-neg50-ep200-tsgkf
 logger:
   wandb:
-    project: "TIP_pretrain"
+    project: "AAAI_Causal_MILK10k_2nd_TIP_pretrain"
     tags: ${tags}
     name: ${experiment_name}-fold${data.fold}
 

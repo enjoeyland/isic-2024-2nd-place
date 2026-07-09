@@ -41,7 +41,7 @@ model:
       num_heads: 8
     use_tabular: false
     use_multimodal: false
-    ckpt_path: /workspace/logs/train/runs/0827-tip_pretrain-swin_tiny_scratch_l2d192h8-tabV3-transV8-lr5e-4-warmup50-bs_64_8-neg50-ep200-tsgkf/checkpoints/fold${data.fold}_epoch_199.ckpt
+    ckpt_path: ${paths.log_dir}train/runs/0827-tip_pretrain-swin_tiny_scratch_l2d192h8-tabV3-transV8-lr5e-4-warmup50-bs_64_8-neg50-ep200-tsgkf/checkpoints/fold${data.fold}_epoch_199.ckpt
     dropout_classifier: 0.05
 
 data:

@@ -3,9 +3,9 @@
 #SBATCH -p asus_a5000,gigabyte_a5000,suma_rtx4090,big_suma_rtx3090
 #SBATCH -q big_qos
 #SBATCH --gres=gpu:1
-#SBATCH --array=0-23%7
+#SBATCH --array=0-23%4
 #SBATCH --output=logs/slurm/phase23_%A_%a.log
-#SBATCH --time=3:00:00
+#SBATCH --time=24:00:00
 
 # Phase 2->3: 2 models x (5 pretrain + 5 finetune + save + train_all_data) = 24 array tasks.
 # task_id = step_idx * 2 + model_idx  (model cycles fastest)

@@ -15,5 +15,10 @@ seed: 0
 
 optimized_metric: "test/pauc"
 
+# null: run all CV folds; 0-4: run a single fold only
+cv_fold: null
+# fold: train CV fold(s) | tune: ensemble weight tuning | all_data: final model | feat_imp: feature importance
+gbdt_stage: fold
+
 wandb_summary_dir: ${paths.log_dir}wandb_cv
 log_dir: ${paths.log_dir}/gbdt/runs/${gbdt_params.name}

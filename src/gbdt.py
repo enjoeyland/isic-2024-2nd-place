@@ -1,4 +1,6 @@
 # %%
+import sys
+
 import pandas as pd
 import numpy as np
 import lightgbm as lgb
@@ -41,13 +43,39 @@ from src.isic_utils.utils import (
 from src.isic_utils.feature_engineering import feature_engineering_new
 from src.isic_utils.gbdt_models import GBDTModels
 
+DEFAULT_GBDT_PARAMS = "260709-0NNs-18types-feV7-s5-tuning_weights"
+
+
+def get_folds_to_run(cfg):
+    cv_fold = cfg.get("cv_fold", None)
+    if cv_fold is None:
+        return list(range(cfg.data.n_fold))
+    fold = int(cv_fold)
+    if fold < 0 or fold >= cfg.data.n_fold:
+        raise ValueError(f"cv_fold must be in [0, {cfg.data.n_fold - 1}], got {fold}")
+    return [fold]
+
+
+def require_all_fold_models(cfg):
+    missing = [
+        fold
+        for fold in range(cfg.data.n_fold)
+        if not os.path.exists(os.path.join(cfg.log_dir, f"model_{fold}.joblib"))
+    ]
+    if missing:
+        raise FileNotFoundError(f"Missing fold checkpoints: {missing} in {cfg.log_dir}")
+
+
 # %%
-gbdt_params = "0906-9NNs-18types-feV7-s5-tuning_weights"
+gbdt_params = DEFAULT_GBDT_PARAMS
+cli_overrides = [a for a in sys.argv[1:] if "=" in a]
+if not any(o.split("=", 1)[0] == "gbdt_params" for o in cli_overrides):
+    cli_overrides.insert(0, f"gbdt_params={gbdt_params}")
 
 with initialize(version_base=None, config_path="../configs"):
     cfg = compose(
         config_name="gbdt",
-        overrides=[f"gbdt_params={gbdt_params}"],
+        overrides=cli_overrides,
         return_hydra_config=True,
     )
     cfg.paths.output_dir = "${hydra.runtime.output_dir}"
@@ -134,37 +162,41 @@ feature_cols += dnn_run_name_list
 
 # %%
 result_dict = {}
-for fold in range(cfg.data.n_fold):
-    _df_train = df_train.iloc[folds[fold][0]].reset_index(drop=True)
-    _df_valid = df_train.iloc[folds[fold][1]].reset_index(drop=True)
+best_weights = None
 
-    X, y = _df_train, _df_train[target_col]
+if cfg.gbdt_stage == "fold":
+    for fold in get_folds_to_run(cfg):
+        save_file_path = os.path.join(cfg.log_dir, f"model_{fold}.joblib")
+        if os.path.exists(save_file_path):
+            print(f"fold: {fold} - skip (checkpoint exists: {save_file_path})")
+            continue
 
-    gbdt_models = GBDTModels(cfg.gbdt_params, feature_cols_without_dnn, cat_cols)
-    gbdt_models.fit(X, y)
+        _df_train = df_train.iloc[folds[fold][0]].reset_index(drop=True)
+        _df_valid = df_train.iloc[folds[fold][1]].reset_index(drop=True)
 
-    save_file_path = os.path.join(cfg.log_dir, f"model_{fold}.joblib")
-    joblib.dump(gbdt_models, save_file_path)
+        X, y = _df_train, _df_train[target_col]
 
-    gbdt_models = joblib.load(save_file_path)
+        gbdt_models = GBDTModels(cfg.gbdt_params, feature_cols_without_dnn, cat_cols)
+        gbdt_models.fit(X, y)
+        joblib.dump(gbdt_models, save_file_path)
 
-    preds = gbdt_models.predict(_df_valid)
-    score = comp_score(_df_valid[[target_col]], pd.DataFrame(preds, columns=["prediction"]), "")
-    print(f"fold: {fold} - Partial AUC Score: {score:.5f}")
+        preds = gbdt_models.predict(_df_valid)
+        score = comp_score(_df_valid[[target_col]], pd.DataFrame(preds, columns=["prediction"]), "")
+        print(f"fold: {fold} - Partial AUC Score: {score:.5f}")
 
-    # save predictions for stacking
-    preds_all = gbdt_models.predict(df_train)
-    df_preds = pd.DataFrame({"isic_id": df_train["isic_id"], "predictions": preds_all})
-    df_preds.to_parquet(os.path.join(cfg.log_dir, f"fold{fold}.parquet"))
+        preds_all = gbdt_models.predict(df_train)
+        df_preds = pd.DataFrame({"isic_id": df_train["isic_id"], "predictions": preds_all})
+        df_preds.to_parquet(os.path.join(cfg.log_dir, f"fold{fold}.parquet"))
 
-    result_dict[f"fold_{fold}"] = score
+        result_dict[f"fold_{fold}"] = score
 
-result_dict["cv_score"] = np.array([result_dict[f"fold_{fold}"] for fold in range(cfg.data.n_fold)]).mean()
-
-result_dict
+    if result_dict:
+        result_dict["cv_score"] = np.mean(list(result_dict.values()))
+        print(result_dict)
 
 # %% tuning ensemble weights
-if cfg.gbdt_params.get("tuning_ensemble_weights"):
+if cfg.gbdt_stage == "tune" and cfg.gbdt_params.get("tuning_ensemble_weights"):
+    require_all_fold_models(cfg)
     num_models = len(cfg.gbdt_params.models)
 
     val_preds = []
@@ -216,7 +248,7 @@ if cfg.gbdt_params.get("tuning_ensemble_weights"):
     best_weights = np.array(list(best_weights.values()))
 
 # %%
-if cfg.gbdt_params.get("tuning_ensemble_weights"):
+if cfg.gbdt_stage == "tune" and cfg.gbdt_params.get("tuning_ensemble_weights"):
     result_dict = {}
     for fold in range(cfg.data.n_fold):
         _df_valid = df_train.iloc[folds[fold][1]].reset_index(drop=True)
@@ -242,51 +274,62 @@ if cfg.gbdt_params.get("tuning_ensemble_weights"):
         [result_dict[f"fold_{fold}"] for fold in range(cfg.data.n_fold)]
     ).mean()
 
-    result_dict
+    print(result_dict)
+
+    run = wandb.init(
+        project=cfg.logger.wandb.project,
+        entity=cfg.logger.wandb.get("entity"),
+        name=f"{cfg.gbdt_params.name}",
+        dir=cfg.wandb_summary_dir,
+        config=OmegaConf.to_container(cfg.gbdt_params, resolve=True, throw_on_missing=True),
+    )
+    run.log(result_dict)
+    run.finish()
 
 # %% train with all data
-X, y = df_train, df_train[target_col]
+if cfg.gbdt_stage == "all_data":
+    if cfg.gbdt_params.get("tuning_ensemble_weights"):
+        require_all_fold_models(cfg)
+        tuned_model = joblib.load(os.path.join(cfg.log_dir, "model_0.joblib"))
+        if tuned_model.ensemble_weights is None:
+            raise ValueError("Run gbdt_stage=tune before gbdt_stage=all_data")
+        best_weights = tuned_model.ensemble_weights
 
-gbdt_models = GBDTModels(cfg.gbdt_params, feature_cols_without_dnn, cat_cols)
-gbdt_models.fit(X, y)
+    X, y = df_train, df_train[target_col]
 
-if cfg.gbdt_params.get("tuning_ensemble_weights"):
-    gbdt_models.set_ensemble_weights(best_weights)
+    gbdt_models = GBDTModels(cfg.gbdt_params, feature_cols_without_dnn, cat_cols)
+    gbdt_models.fit(X, y)
 
-save_file_path = os.path.join(cfg.log_dir, "model_all_data.joblib")
-joblib.dump(gbdt_models, save_file_path)
+    if cfg.gbdt_params.get("tuning_ensemble_weights"):
+        gbdt_models.set_ensemble_weights(best_weights)
 
-# %%
-run = wandb.init(
-    project=cfg.logger.wandb.project,
-    entity=cfg.logger.wandb.get("entity"),
-    name=f"{cfg.gbdt_params.name}",
-    dir=cfg.wandb_summary_dir,
-    config=OmegaConf.to_container(cfg.gbdt_params, resolve=True, throw_on_missing=True),
-)
-run.log(result_dict)
-
-run.finish()
+    save_file_path = os.path.join(cfg.log_dir, "model_all_data.joblib")
+    joblib.dump(gbdt_models, save_file_path)
+    print(f"saved: {save_file_path}")
 
 # %% feature importance
+if cfg.gbdt_stage == "feat_imp":
+    require_all_fold_models(cfg)
+
 fi = []
-for fold in range(cfg.data.n_fold):
-    save_file_path = os.path.join(cfg.log_dir, f"model_{fold}.joblib")
-    gbdt_models = joblib.load(save_file_path)
+if cfg.gbdt_stage == "feat_imp":
+    for fold in range(cfg.data.n_fold):
+        save_file_path = os.path.join(cfg.log_dir, f"model_{fold}.joblib")
+        gbdt_models = joblib.load(save_file_path)
 
-    fi.append(gbdt_models.get_feature_importance())
+        fi.append(gbdt_models.get_feature_importance())
 
-for fold in range(cfg.data.n_fold):
-    for model_idx in range(len(fi[fold][0])):
-        df_imp = (
-            pd.DataFrame({"feature": fi[fold][1][model_idx], "importance": fi[fold][0][model_idx]})
-            .sort_values("importance", ascending=False)
-            .reset_index(drop=True)
-        )
-        df_imp.to_csv(os.path.join(cfg.log_dir, f"feat_imp-fold{fold}-{model_idx}.csv"), index=False)
+    for fold in range(cfg.data.n_fold):
+        for model_idx in range(len(fi[fold][0])):
+            df_imp = (
+                pd.DataFrame({"feature": fi[fold][1][model_idx], "importance": fi[fold][0][model_idx]})
+                .sort_values("importance", ascending=False)
+                .reset_index(drop=True)
+            )
+            df_imp.to_csv(os.path.join(cfg.log_dir, f"feat_imp-fold{fold}-{model_idx}.csv"), index=False)
 
-        # plt.figure(figsize=(16, 12))
-        # plt.barh(df_imp["feature"], df_imp["importance"])
-        # plt.show()
+            # plt.figure(figsize=(16, 12))
+            # plt.barh(df_imp["feature"], df_imp["importance"])
+            # plt.show()
 
 # %%

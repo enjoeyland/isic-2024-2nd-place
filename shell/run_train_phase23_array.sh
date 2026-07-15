@@ -80,8 +80,8 @@ if (( step_idx >= PRETRAIN_OFFSET && step_idx < FINETUNE_OFFSET )); then
     python train_cv_tip_pretrain.py "experiment=${PRETRAIN_EXP}" "cv_fold=${fold}" "$@"
 elif (( step_idx >= FINETUNE_OFFSET && step_idx < SAVE_STEP )); then
     fold=$((step_idx - FINETUNE_OFFSET))
-    echo "=== train_cv finetune fold=$fold (wait for pretrain fold=$fold) ==="
-    wait_for_fold_ckpt "$PRETRAIN_EXP" "$fold"
+    echo "=== train_cv finetune fold=$fold (wait for pretrain fold${fold}_epoch_199.ckpt) ==="
+    wait_for_pretrain_epoch_ckpt "$PRETRAIN_EXP" "$fold" 199
     python train_cv.py "experiment=${FINETUNE_EXP}" "cv_fold=${fold}" "$@"
 elif (( step_idx == SAVE_STEP )); then
     echo "=== save_train_predictions (wait for finetune CV checkpoints) ==="

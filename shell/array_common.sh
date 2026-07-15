@@ -67,6 +67,32 @@ wait_for_fold_ckpt() {
     echo "Found checkpoint for experiment=${experiment} fold=${fold}"
 }
 
+pretrain_epoch_ckpt_path() {
+    local pretrain_exp=$1
+    local fold=$2
+    local epoch=$3
+    echo "$(checkpoint_dir "$pretrain_exp")/fold${fold}_epoch_${epoch}.ckpt"
+}
+
+pretrain_epoch_ckpt_exists() {
+    [[ -f "$(pretrain_epoch_ckpt_path "$1" "$2" "$3")" ]]
+}
+
+# Finetune loads fold{N}_epoch_{E}.ckpt from pretrain, not last-v{N}.ckpt.
+wait_for_pretrain_epoch_ckpt() {
+    local pretrain_exp=$1
+    local fold=$2
+    local epoch=${3:-199}
+    local poll_sec=${4:-120}
+    local path
+    path="$(pretrain_epoch_ckpt_path "$pretrain_exp" "$fold" "$epoch")"
+    echo "Waiting for pretrain epoch checkpoint: ${path}"
+    while ! pretrain_epoch_ckpt_exists "$pretrain_exp" "$fold" "$epoch"; do
+        sleep "$poll_sec"
+    done
+    echo "Found pretrain epoch checkpoint for experiment=${pretrain_exp} fold=${fold} epoch=${epoch}"
+}
+
 wait_for_all_cv_ckpts() {
     local experiment=$1
     local fold
@@ -91,4 +117,54 @@ decode_task() {
     echo "Invalid task_id=$task_id for n_models=$n_models n_steps=$n_steps" >&2
     return 1
   fi
+}
+
+gbdt_run_dir() {
+    local gbdt_params=$1
+    echo "${REPO}/logs/gbdt/runs/${gbdt_params}"
+}
+
+gbdt_fold_model_exists() {
+    local gbdt_params=$1
+    local fold=$2
+    [[ -f "$(gbdt_run_dir "$gbdt_params")/model_${fold}.joblib" ]]
+}
+
+wait_for_gbdt_fold_model() {
+    local gbdt_params=$1
+    local fold=$2
+    local poll_sec=${3:-120}
+    local path
+    path="$(gbdt_run_dir "$gbdt_params")/model_${fold}.joblib"
+    echo "Waiting for GBDT checkpoint: ${path}"
+    while ! gbdt_fold_model_exists "$gbdt_params" "$fold"; do
+        sleep "$poll_sec"
+    done
+    echo "Found GBDT checkpoint for gbdt_params=${gbdt_params} fold=${fold}"
+}
+
+wait_for_all_gbdt_fold_models() {
+    local gbdt_params=$1
+    local fold
+    for fold in 0 1 2 3 4; do
+        wait_for_gbdt_fold_model "$gbdt_params" "$fold"
+    done
+}
+
+wait_for_gbdt_tune() {
+    local gbdt_params=$1
+    local poll_sec=${2:-120}
+    local path
+    path="$(gbdt_run_dir "$gbdt_params")/model_0.joblib"
+    wait_for_all_gbdt_fold_models "$gbdt_params"
+    echo "Waiting for GBDT ensemble weights (tune): ${path}"
+    # joblib models pickle classes under src.*; need REPO on PYTHONPATH
+    while ! PYTHONPATH="${REPO}${PYTHONPATH:+:$PYTHONPATH}" python -c "
+import joblib, sys
+m = joblib.load('${path}')
+sys.exit(0 if m.ensemble_weights is not None else 1)
+"; do
+        sleep "$poll_sec"
+    done
+    echo "Found ensemble weights for gbdt_params=${gbdt_params}"
 }

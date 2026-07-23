@@ -48,7 +48,7 @@ DLP families produced (one row per lesion, keyed by isic_id)
 
 Also written: ``embeddings.npy`` (N x 768) + ``embedding_isic_ids.npy`` for
 downstream linear-probe / Distributed-Alignment-Search work (see
-docs/research_plan_dl_as_bn.md).
+docs/260721-research_plan_dl_as_bn.md).
 
 Usage
 -----
